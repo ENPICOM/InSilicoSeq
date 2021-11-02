@@ -111,6 +111,7 @@ def test_kde_short():
         big_read = ''.join(str(read_tuple[0].seq) + str(read_tuple[1].seq))
         assert big_read == 'ACCAAACCAAACCAAACCAAGGTTTGGTTTGGTTTGGTGT'
 
+
 def test_kde_low_quality():
     if sys.version_info > (3,):
         random.seed(42)
@@ -131,6 +132,7 @@ def test_kde_low_quality():
         read_tuple = generator.simulate_read(ref_genome, err_mod, 1, 0, ('kde', 'low'))
         big_read = ''.join(str(read_tuple[0].seq) + str(read_tuple[1].seq))
         assert big_read == 'ACCATTCTACACCAAAGCAAAGTCCGATTGGGTTTGCTGT'
+
 
 def test_kde_middle_low_quality():
     if sys.version_info > (3,):
@@ -154,6 +156,7 @@ def test_kde_middle_low_quality():
         big_read = ''.join(str(read_tuple[0].seq) + str(read_tuple[1].seq))
         assert big_read == 'ACCATACCATACCAAACCAAGGTGAGGTTCGGTTTGGTTT'
 
+
 def test_kde_middle_high_quality():
     if sys.version_info > (3,):
         random.seed(42)
@@ -173,6 +176,7 @@ def test_kde_middle_high_quality():
         read_tuple = generator.simulate_read(ref_genome, err_mod, 1, 0, ('kde', 'middle_high'))
         big_read = ''.join(str(read_tuple[0].seq) + str(read_tuple[1].seq))
         assert big_read == 'ACCAAACCAAACCAAACCAAGGTTTGGTTTGGTTTGGTTT'
+
 
 def test_kde_high_quality():
     if sys.version_info > (3,):
