@@ -61,18 +61,21 @@ def generate_reads(args):
             else:
                 npz = args.model
             err_mod = kde.KDErrorModel(npz)
+            quality_bin = ('kde', args.quality_bin)
         elif args.mode == 'basic':
             if args.model is not None:
                 logger.warning('--model %s will be ignored in --mode %s' % (
                     args.model, args.mode))
             from iss.error_models import basic
             err_mod = basic.BasicErrorModel()
+            quality_bin = ('basic', None)
         elif args.mode == 'perfect':
             if args.model is not None:
                 logger.warning('--model %s will be ignored in --mode %s' % (
                     args.model, args.mode))
             from iss.error_models import perfect
             err_mod = perfect.PerfectErrorModel()
+            quality_bin = ('perfect', None)
     except ImportError as e:
         logger.error('Failed to import ErrorModel module: %s' % e)
         sys.exit(1)
@@ -308,7 +311,7 @@ def generate_reads(args):
                                 delayed(generator.reads)(
                                     record, err_mod,
                                     n_pairs_per_cpu[i], i, args.output,
-                                    args.seed,
+                                    args.seed, quality_bin,
                                     args.gc_bias, mode) for i in range(cpus))
                         temp_file_list.extend(record_file_name_list)
         except KeyboardInterrupt as e:
@@ -556,6 +559,18 @@ def main():
         metavar='<fastq>',
         help='Output file path and prefix (Required)',
         required=True
+    )
+    parser_gen.add_argument(
+        '--quality_bin',
+        '-qb',
+        default='auto',
+        choices=['auto', 'low', 'middle_low', 'middle_high', 'high'],
+        help='Set the quality of the reads. Choose from auto, low, middle_low,\
+              middle_high, and high. If auto is chosen, picks the most likely \
+              option of the latter four. If low, middle_low, middle_high, \
+              or high is chosen, and the model did not contain cdfs for that \
+              quality range, pick the next lowest (if lowest not available, \
+              pick middle_low) (default: %(default)s).'
     )
     parser_gen._optionals.title = 'arguments'
     parser_gen.set_defaults(func=generate_reads)

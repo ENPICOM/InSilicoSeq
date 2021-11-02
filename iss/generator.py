@@ -16,7 +16,7 @@ import logging
 import numpy as np
 
 
-def reads(record, ErrorModel, n_pairs, cpu_number, output, seed,
+def reads(record, ErrorModel, n_pairs, cpu_number, output, seed, quality_bin,
           gc_bias=False, mode="default"):
     """Simulate reads from one genome (or sequence) according to an ErrorModel
 
@@ -31,6 +31,9 @@ def reads(record, ErrorModel, n_pairs, cpu_number, output, seed,
             function. Is used for naming the output file
         output (str): the output file prefix
         seed (int): random seed to use
+        quality_bin (tuple): name error model and level of
+            quality for the quality scores. Quality level can be 'auto',
+            'low', 'middle_low', 'middle_high', 'high' (default: 'auto').
         gc_bias (bool): if set, the function may skip a read due to abnormal
             GC content
 
@@ -59,7 +62,8 @@ def reads(record, ErrorModel, n_pairs, cpu_number, output, seed,
         #     logger.error('Skipping this record: %s' % record.id)
         #     return
         try:
-            forward, reverse = simulate_read(record, ErrorModel, i, cpu_number)
+            forward, reverse = simulate_read(record, ErrorModel, i,
+                                             cpu_number, quality_bin)
         except AssertionError as e:
             logger.warning(
                 '%s shorter than read length for this ErrorModel' % record.id)
@@ -89,7 +93,7 @@ def reads(record, ErrorModel, n_pairs, cpu_number, output, seed,
     return temp_file_name
 
 
-def simulate_read(record, ErrorModel, i, cpu_number):
+def simulate_read(record, ErrorModel, i, cpu_number, quality_bin):
     """From a read pair from one genome (or sequence) according to an
     ErrorModel
 
@@ -101,6 +105,9 @@ def simulate_read(record, ErrorModel, i, cpu_number):
         ErrorModel (ErrorModel): an ErrorModel class
         i (int): a number identifying the read
         cpu_number (int): cpu number. Is added to the read id.
+        quality_bin (tuple): name error model and level of quality for
+            the quality scores. Quality level can be 'auto', 'low',
+            'middle_low', 'middle_high', 'high' (default: 'auto').
 
     Returns:
         tuple: tuple containg a forward read and a reverse read
@@ -137,7 +144,7 @@ def simulate_read(record, ErrorModel, i, cpu_number):
     # add the indels, the qual scores and modify the record accordingly
     forward.seq = ErrorModel.introduce_indels(
         forward, 'forward', sequence, bounds)
-    forward = ErrorModel.introduce_error_scores(forward, 'forward')
+    forward = ErrorModel.introduce_error_scores(forward, 'forward', quality_bin)
     forward.seq = ErrorModel.mut_sequence(forward, 'forward')
 
     # generate the reverse read
@@ -160,7 +167,7 @@ def simulate_read(record, ErrorModel, i, cpu_number):
     # add the indels, the qual scores and modify the record accordingly
     reverse.seq = ErrorModel.introduce_indels(
         reverse, 'reverse', sequence, bounds)
-    reverse = ErrorModel.introduce_error_scores(reverse, 'reverse')
+    reverse = ErrorModel.introduce_error_scores(reverse, 'reverse', quality_bin)
     reverse.seq = ErrorModel.mut_sequence(reverse, 'reverse')
 
     return (forward, reverse)

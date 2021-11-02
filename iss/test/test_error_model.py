@@ -30,8 +30,65 @@ def test_kde_phred():
     np.random.seed(42)
     err_mod = kde.KDErrorModel('data/ecoli.npz')
     distribution = err_mod.gen_phred_scores(err_mod.quality_reverse,
-                                            'reverse')[10:]
+                                            'reverse', 'auto')[10:]
     assert distribution == [40, 40, 40, 40, 40, 40, 40, 40, 10, 10]
+
+
+def test_kde_phred_low():
+    np.random.seed(42)
+    err_mod = kde.KDErrorModel('data/ecoli.npz')
+    err_mod.quality_forward = err_mod.quality_reverse = [np.tile(([0.,
+        0.02931223, 0.04742587, 0.07585818, 0.11920292,
+        0.18242552, 0.26894142, 0.37754067, 0.5, 0.62245933,
+        0.73105858, 0.81757448, 0.88079708, 0.92414182, 0.95257413,
+        0.97068777, 0.98201379, 0.98901306, 1., 1., 1., 1., 1., 1., 1.,
+        1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+        1.]), (20, 1)) for i in range(4)]
+    distribution = err_mod.gen_phred_scores(err_mod.quality_reverse,
+                                            'reverse', 'low')[10:]
+    assert distribution == [1, 15, 12, 6, 5, 6, 7, 9, 8, 7]
+
+
+def test_kde_phred_middle_low():
+    np.random.seed(42)
+    err_mod = kde.KDErrorModel('data/ecoli.npz')
+    err_mod.quality_forward = err_mod.quality_reverse = [np.tile(([0., 0., 0., 0.,
+            0.02188127, 0.02931223, 0.03916572, 0.05215356, 0.06913842, 0.09112296,
+            0.11920292, 0.15446527, 0.19781611, 0.24973989, 0.31002552,
+            0.37754067, 0.450166, 0.52497919, 0.59868766, 0.66818777,
+            0.73105858, 0.78583498, 0.83201839, 0.86989153, 0.90024951,
+            0.92414182, 0.94267582, 0.95689275, 0.96770454, 0.97587298,
+            0.98201379, 0.98661308, 1., 1., 1., 1., 1., 1., 1., 1.,
+            1.]), (20, 1)) for i in range(4)]
+    distribution = err_mod.gen_phred_scores(err_mod.quality_reverse,
+                                            'reverse', 'middle_low')[10:]
+    assert distribution == [4, 29, 23, 13, 12, 12, 14, 17, 16, 14]
+
+
+def test_kde_phred_middle_high():
+    np.random.seed(42)
+    err_mod = kde.KDErrorModel('data/ecoli.npz')
+    err_mod.quality_forward = err_mod.quality_reverse = [np.tile(([0., 0., 0., 0., 0.,
+            0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.02931223,
+            0.04742587, 0.07585818, 0.11920292, 0.18242552, 0.26894142,
+            0.37754067, 0.5, 0.62245933, 0.73105858, 0.81757448,
+            0.88079708, 0.92414182, 0.95257413, 0.97068777, 0.98201379,
+            0.98901306, 1., 1., 1., 1., 1.]), (20, 1)) for i in range(4)]
+    distribution = err_mod.gen_phred_scores(err_mod.quality_reverse,
+                                            'reverse', 'middle_high')[10:]
+    assert distribution == [19, 33, 30, 24, 23, 24, 25, 27, 26, 25]
+
+
+def test_kde_phred_high():
+    np.random.seed(42)
+    err_mod = kde.KDErrorModel('data/ecoli.npz')
+    err_mod.quality_forward = err_mod.quality_reverse = [np.tile(([0., 0., 0., 0., 0.,
+            0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+            0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.11920292,
+            0.5, 0.88079708, 0.98201379, 1., 1., 1.]), (20, 1)) for i in range(4)]
+    distribution = err_mod.gen_phred_scores(err_mod.quality_reverse,
+                                            'reverse', 'high')[10:]
+    assert distribution == [34, 37, 36, 35, 35, 35, 35, 36, 35, 35]
 
 
 def test_introduce_errors():
@@ -43,7 +100,7 @@ def test_introduce_errors():
         id='read_1',
         description='test read'
     )
-    read = err_mod.introduce_error_scores(read, 'forward')
+    read = err_mod.introduce_error_scores(read, 'forward', ('basic', None))
     qualities = read.letter_annotations["phred_quality"][:10]
     assert qualities == [40, 26, 40, 40, 25, 25, 40, 40, 22, 40]
 
