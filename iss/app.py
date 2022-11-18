@@ -10,17 +10,19 @@ from iss.version import __version__
 from Bio import SeqIO
 from joblib import Parallel, delayed
 
-import gc
 import os
 import sys
 import random
 import logging
 import argparse
 import numpy as np
-from typing import List, Optional
+from typing import List
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger()
 
+#! TODO find best default values
+MIN_GENOMES_FOR_PARALLEL = 1000
+MIN_GENOME_READS_FOR_PARALLEL = 1000
 
 class ReadGenerator:
     def __init__(self, args):
@@ -65,9 +67,7 @@ class ReadGenerator:
         self.abundance: str = args.abundance
         self.n_reads: int = args.n_reads
 
-        self.abundance_dic = self._load_abundance_file()
-        self.readcount_dic = self._load_readcount_file()
-        # print(*self.readcount_dic.items(), sep="\n")
+        self.abundance_dic, self.readcount_dic = self._load_abundance_file()
 
         self.cpus: int = args.cpus
 
@@ -75,14 +75,15 @@ class ReadGenerator:
         self.sequence_type: str = args.sequence_type
         self.gc_bias: bool = args.gc_bias
         self.compress: bool = args.compress
-        self.parallel_genomes = self.sequence_type == "amplicon"
+        self.parallel_genomes = len(self.genome_list) > MIN_GENOMES_FOR_PARALLEL
+        if self.parallel_genomes and self.cpus > 1:
+            LOGGER.info('Will perform parallel processing of genomes')
         self.total_reads_generated = 0
         self.total_reads_generated_unrounded = 0
         self.mutations_format: str = args.store_mutations  # VCF
         if self.store_mutations:
             LOGGER.info(f'Storing mutations to {self.mutations_format} format')
         self.mutations = []
-
 
     def _load_model(self):
         try:  # try to import and load the correct error model
@@ -189,8 +190,18 @@ class ReadGenerator:
         return genome_file
 
     def _load_abundance_file(self):
-        # read the abundance, coverage file
-        if self.abundance_file:
+        abundance_dic, readcount_dic = {}, None
+        # read the abundance, coverage file or readcount file
+        if self.readcount_file:
+            LOGGER.debug('--readcount_file is an experimental feature')
+            LOGGER.debug('--readcount_file disables --n_reads')
+            LOGGER.debug('--readcount_file disables abundace distributions')
+            if self.draft:
+                raise RuntimeError("readcount_file is only supported using --genomes, not --draft")
+            readcount_dic =  abundance.parse_readcount_file(self.readcount_file)
+            self.n_reads = sum(readcount_dic.values())
+            LOGGER.info(f'Will generate a max of {self.n_reads} read pairs based on the readcount_file')
+        elif self.abundance_file:
             LOGGER.info('Using abundance file:%s' % self.abundance_file)
             if self.draft:
                 abundance_dic_short = abundance.parse_abundance_file(
@@ -217,7 +228,7 @@ class ReadGenerator:
                                         k, v in coverage_dic.items()
                                         if k not in self.draft}
                 draft_dic = abundance.expand_draft_abundance(
-                    abundance_dic_short,
+                    abundance_dic_short,  #! TODO This variable will always be unbound?
                     self.draft,
                     mode="coverage")
                 abundance_dic = {**complete_genomes_dic,
@@ -260,24 +271,12 @@ class ReadGenerator:
                     self.abundance](self.genome_list)
                 abundance.to_file(abundance_dic, self.output)
         else:
-            LOGGER.error('Could not get abundance')
+            LOGGER.error('Could not get abundance or read counts')
             sys.exit(1)
-        return abundance_dic
-
-    def _load_readcount_file(self):
-        if self.readcount_file:
-            LOGGER.warning('--readcount_file is an experimental feature')
-            LOGGER.warning('--readcount_file disables --n_reads')
-            if self.draft:
-                raise RuntimeError("readcount_file is only supported using --genomes, not --draft")
-            readcount_dic =  abundance.parse_readcount_file(self.readcount_file)
-            self.n_reads = sum(readcount_dic.values())
-            LOGGER.info(f'Will generate a total of {self.n_reads} read pairs based on the readcount_file')
-            return readcount_dic
-        return None
+        return abundance_dic, readcount_dic
 
     def _get_n_pairs_for_record(self, record: SeqIO.SeqRecord):
-        if self.readcount_dic:
+        if self.readcount_dic is not None:
             n_pairs = self.readcount_dic.get(record.id, 0)
             self.total_reads_generated += n_pairs
         else:
@@ -313,109 +312,51 @@ class ReadGenerator:
                 self.total_reads_generated += 1
         return n_pairs
 
-
     def generate_for_record(
             self,
             record: SeqIO.SeqRecord,
             n_pairs: int
-        ) -> Optional[str]:
-        if n_pairs == 0:
-            LOGGER.debug(
-                f"Skipping record {record.id} because n_pairs == 0")
-            return None
-
-        # due to a bug in multiprocessing
-        # https://bugs.python.org/issue17560
-        # we can't send records taking more than 2**31 bytes
-        # through serialisation.
-        # In those cases we use memmapping
+        ) -> List[str]:
         if sys.getsizeof(str(record.seq)) >= 2**31 - 1:
-                LOGGER.warning(
-                    "record %s unusually big." % record.id)
-                LOGGER.warning("Using a memory map.")
-                mode = "memmap"
-
-                record_mmap = "%s.memmap" % self.output
-                if os.path.exists(record_mmap):
-                    os.unlink(record_mmap)
-                util.dump(record, record_mmap)
-                del record
-                record = record_mmap
-                gc.collect()
+            record_mmep = util.mmep_record(self.output, record)
         else:
-            mode = "default"
+            record_mmep = None
 
         LOGGER.debug(f'Generating {n_pairs} read pair(s) for record: {record.id}')
+        if not self.parallel_genomes and n_pairs > MIN_GENOME_READS_FOR_PARALLEL:
+            # exact self.n_reads for each cpus
+            if n_pairs % self.cpus == 0:
+                n_pairs_per_cpu = [(n_pairs // self.cpus)
+                                    for _ in range(self.cpus)]
+            else:
+                n_pairs_per_cpu = [(n_pairs // self.cpus)
+                                    for _ in range(self.cpus)]
+                n_pairs_per_cpu[-1] += n_pairs % self.cpus
 
-        read_file = generator.reads(
-            record, self.err_mod,
-            n_pairs, 0, self.output,
-            self.seed, self.sequence_type,
-            self.gc_bias, mode, self.store_mutations
-        )
-        return read_file
-
-    def generate_for_record_multi(
-            self,
-            record: SeqIO.SeqRecord,
-            n_pairs: int
-        ) -> List[Optional[str]]:
-        # n_pairs = self._get_n_pairs_for_record(record)
-        # skip record if n_pairs == 0
-        if n_pairs == 0:
-            LOGGER.debug(
-                f"Skipping record {record.id} because n_pairs == 0")
-            return [None]
-
-        # due to a bug in multiprocessing
-        # https://bugs.python.org/issue17560
-        # we can't send records taking more than 2**31 bytes
-        # through serialisation.
-        # In those cases we use memmapping
-        if sys.getsizeof(str(record.seq)) >= 2**31 - 1:
-                LOGGER.warning(
-                    "record %s unusually big." % record.id)
-                LOGGER.warning("Using a memory map.")
-                mode = "memmap"
-
-                record_mmap = "%s.memmap" % self.output
-                if os.path.exists(record_mmap):
-                    os.unlink(record_mmap)
-                util.dump(record, record_mmap)
-                del record
-                record = record_mmap
-                gc.collect()
+            record_file_name_list = Parallel(
+                n_jobs=self.cpus)(
+                    delayed(generator.reads)(
+                        record, self.err_mod,
+                        n_pairs_per_cpu[i], i, self.output,
+                        self.seed, self.sequence_type,
+                        self.gc_bias, record_mmep, self.store_mutations) for i in range(self.cpus)
+                    )
+            assert record_file_name_list is not None
         else:
-            mode = "default"
+            read_file = generator.reads(
+                record, self.err_mod,
+                n_pairs, 0, self.output,
+                self.seed, self.sequence_type,
+                self.gc_bias, record_mmep, self.store_mutations
+            )
+            record_file_name_list = [read_file]
 
-        LOGGER.debug(f'Generating {n_pairs} read pair(s) for record: {record.id}')
-
-        # exact self.n_reads for each cpus
-        if n_pairs % self.cpus == 0:
-            n_pairs_per_cpu = [(n_pairs // self.cpus)
-                                for _ in range(self.cpus)]
-        else:
-            n_pairs_per_cpu = [(n_pairs // self.cpus)
-                                for _ in range(self.cpus)]
-            n_pairs_per_cpu[-1] += n_pairs % self.cpus
-
-        record_file_name_list = Parallel(
-            n_jobs=self.cpus)(
-                delayed(generator.reads)(
-                    record, self.err_mod,
-                    n_pairs_per_cpu[i], i, self.output,
-                    self.seed, self.sequence_type,
-                    self.gc_bias, mode) for i in range(self.cpus)
-                )
-        assert record_file_name_list is not None
         return record_file_name_list
-
 
     def generate(self):
         if not (self.coverage or self.coverage_file or self.readcount_file):
             self.n_reads = util.convert_n_reads(self.n_reads)
             LOGGER.info('Generating %s reads' % self.n_reads)
-        gen_func = self.generate_for_record if self.parallel_genomes else self.generate_for_record_multi
 
         try:
             f = open(self.genome_file, 'r')  # re-opens the file
@@ -428,16 +369,19 @@ class ReadGenerator:
                         LOGGER.debug(
                             f"Skipping record {record.id} because n_pairs == 0")
                         continue
-                    tasks.append((gen_func, record, n_pairs))
-                temp_file_list = Parallel(
-                    n_jobs=self.cpus, verbose=2, batch_size=1000
-                    )(delayed(func)(record, n_pairs)
-                        for (func, record, n_pairs) in tasks
+                    tasks.append((record, n_pairs))
+
+                #! TODO find optimal batch size
+                parallel_output_files = Parallel(
+                    n_jobs=self.cpus, verbose=0, batch_size=1000
+                    )(delayed(self.generate_for_record)(record, n_pairs)
+                        for (record, n_pairs) in tasks
                 )
+                assert parallel_output_files is not None
+                temp_file_list =[file for file_list in parallel_output_files for file in file_list]
 
         except KeyboardInterrupt as e:
             LOGGER.error('iss generate interrupted: %s' % e)
-            temp_file_list = list(filter(None, temp_file_list))
             temp_R1 = [temp_file + '_R1.fastq' for temp_file in temp_file_list]
             temp_R2 = [temp_file + '_R2.fastq' for temp_file in temp_file_list]
             temp_mut = [temp_file + '.' + self.mutations_format for temp_file in temp_file_list]
@@ -451,8 +395,6 @@ class ReadGenerator:
             # remove the duplicates in file list and cleanup
             # we remove the duplicates in case two records had the same header
             # and reads were appended to the same temp file.
-            temp_file_list = list(filter(None, temp_file_list))
-
             temp_R1 = [temp_file + '_R1.fastq' for temp_file in temp_file_list]
             temp_R2 = [temp_file + '_R2.fastq' for temp_file in temp_file_list]
             temp_mut = [temp_file + '.' + self.mutations_format for temp_file in temp_file_list] if self.store_mutations else []
@@ -475,12 +417,6 @@ class ReadGenerator:
                 if self.store_mutations:
                     util.compress(self.output + '.' + self.mutations_format)
             LOGGER.info(f'Read generation complete, {self.total_reads_generated} reads generated.')
-
-
-
-def generate_reads(args):
-    read_generator = ReadGenerator(args)
-    read_generator.generate()
 
 
 def model_from_bam(args):
@@ -715,11 +651,11 @@ def main():
         '-M',
         choices=['none', 'vcf'],
         default="none",
-        help='Enables output of inserted mutations in format (default: %(choises)s).'
+        help='Enables output of inserted mutations in format of choice.'
     )
 
     parser_gen._optionals.title = 'arguments'
-    parser_gen.set_defaults(func=generate_reads)
+    parser_gen.set_defaults(func=lambda args: ReadGenerator(args).generate())
 
     # arguments for the error model module
     parser_mod.add_argument(
@@ -760,16 +696,16 @@ def main():
             print('iss version %s' % __version__)
             sys.exit(0)
         elif args.quiet:
-            logging.basicConfig(level=logging.ERROR)
+            level=logging.ERROR
         elif args.debug:
-            logging.basicConfig(level=logging.DEBUG)
+            level=logging.DEBUG
         else:
-            logging.basicConfig(level=logging.INFO)
+            level=logging.INFO
+        logging.basicConfig(level=level, format="%(asctime)s|%(levelname)s\t%(message)s", datefmt="%H:%M:%S")
 
         args.func(args)
         logging.shutdown()
     except AttributeError as e:
-        logger = logging.getLogger(__name__)
-        logger.debug(e)
+        LOGGER.debug(e)
         parser.print_help()
         # raise  # extra traceback to uncomment if all hell breaks lose

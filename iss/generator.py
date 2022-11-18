@@ -19,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def reads(record, ErrorModel, n_pairs, cpu_number, output, seed, sequence_type,
-          gc_bias=False, mode="default", store_mutations=False) -> str:
+          gc_bias=False, record_mmep=None, store_mutations=False) -> str:
     """Simulate reads from one genome (or sequence) according to an ErrorModel
 
     This function makes use of the `simulate_read` function to simulate reads
@@ -40,10 +40,9 @@ def reads(record, ErrorModel, n_pairs, cpu_number, output, seed, sequence_type,
     Returns:
         str: the name of the output file
     """
-    # load the record from disk if mode is memmap
-    if mode == "memmap":
-        record_mmap = load(record)
-        record = record_mmap
+    # load the record from disk if memmap_record is given
+    if record_mmep is not None:
+        record: SeqRecord = load(record_mmep)
 
     if seed is not None:
         random.seed(seed + cpu_number)
@@ -232,6 +231,8 @@ def to_vcf(generator, output):
                 ".",
                 vcf_dict["ref"],
                 str(vcf_dict["alt"]),
-                str(vcf_dict["quality"])
+                str(vcf_dict["quality"]),
+                "",
+                ""
             ])
             f.write(line + "\n")

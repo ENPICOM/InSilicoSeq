@@ -10,6 +10,7 @@ import pickle
 import random
 import logging
 import numpy as np
+import gc
 
 from shutil import copyfileobj
 
@@ -275,3 +276,21 @@ def load(filename):
     object = pickle.loads(bytes)
 
     return object
+
+def mmep_record(output, record: SeqIO.SeqRecord) -> str:
+    # due to a bug in multiprocessing
+    # https://bugs.python.org/issue17560
+    # we can't send records taking more than 2**31 bytes
+    # through serialisation.
+    # In those cases we use memmapping to write to a file and return the file location
+    LOGGER.warning(
+        "record %s unusually big." % record.id)
+    LOGGER.warning("Using a memory map.")
+
+    record_mmap = "%s.memmap" % output
+    if os.path.exists(record_mmap):
+        os.unlink(record_mmap)
+    dump(record, record_mmap)
+    del record
+    gc.collect()
+    return record_mmap
