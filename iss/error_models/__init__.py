@@ -18,10 +18,11 @@ class ErrorModel(object):
     This class is used to create inheriting classes and contains all
     the functions that are shared by all ErrorModel classes
     """
-    def __init__(self, store_mutations):
+    def __init__(self, store_mutations, phred_score_factor):
         self.mutations = {}
         self.store_mutations = store_mutations
-
+        self.phred_score_factor = phred_score_factor
+        
         # These will all be overwritten by the error model type class
         self.subst_choices_for = []
         self.subst_choices_rev = []
@@ -63,7 +64,7 @@ class ErrorModel(object):
             self.logger.debug('Loaded ErrorProfile: %s' % npz_path)
         return error_profile
 
-    def introduce_error_scores(self, record, orientation) -> SeqRecord:
+    def introduce_error_scores(self, record: SeqRecord, orientation) -> SeqRecord:
         """Add phred scores to a SeqRecord according to the error_model
 
         Args:

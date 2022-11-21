@@ -14,8 +14,8 @@ class BasicErrorModel(ErrorModel):
     Only substitutions errors occur. The substitution rate is assumed
     equal between all nucleotides.
     """
-    def __init__(self, store_mutations=False):
-        super().__init__(store_mutations)
+    def __init__(self, store_mutations=False, phred_score_factor=1.0):
+        super().__init__(store_mutations, phred_score_factor)
         self.read_length = 125
         self.insert_size = 200
         self.quality_forward = self.quality_reverse = 30
@@ -30,7 +30,7 @@ class BasicErrorModel(ErrorModel):
             'A': 0.0, 'T': 0.0, 'C': 0.0, 'G': 0.0
         } for _ in range(125)]
 
-    def gen_phred_scores(self, mean_quality, orientation):
+    def gen_phred_scores(self, mean_quality):
         """Generate a normal distribution, transform to phred scores
 
         Generate a list of phred score according to a normal distribution
@@ -44,7 +44,7 @@ class BasicErrorModel(ErrorModel):
         """
         norm = [min(q, 0.9999) for q in np.random.normal(
             util.phred_to_prob(mean_quality), 0.01, self.read_length)]
-        phred = [util.prob_to_phred(p) for p in norm]
+        phred = [min(40, int(util.prob_to_phred(p) * self.phred_score_factor)) for p in norm]
         return phred
 
     def random_insert_size(self):

@@ -41,6 +41,7 @@ class ReadGenerator:
         self.mode: str = args.mode
         self.model: str = args.model
         self.store_mutations: bool = args.store_mutations != "none"
+        self.phred_score_factor: float = args.phred_score_factor
         self.err_mod = self._load_model()
 
         # initialize genomes
@@ -109,13 +110,13 @@ class ReadGenerator:
                         'profiles/MiSeq')
                 else:
                     npz = self.model
-                err_mod = kde.KDErrorModel(npz, self.store_mutations)
+                err_mod = kde.KDErrorModel(npz, self.store_mutations, self.phred_score_factor)
             elif self.mode == 'basic':
                 if self.model is not None:
                     LOGGER.warning('--model %s will be ignored in --mode %s' % (
                         self.model, self.mode))
                 from iss.error_models import basic
-                err_mod = basic.BasicErrorModel(self.store_mutations)
+                err_mod = basic.BasicErrorModel(self.store_mutations, self.phred_score_factor)
             elif self.mode == 'perfect':
                 if self.model is not None:
                     LOGGER.warning('--model %s will be ignored in --mode %s' % (
@@ -616,6 +617,13 @@ def main():
         file generated with iss model. If you do not wish to use a model, use \
         --mode basic or --mode perfect. The name of the built-in models are  \
         case insensitive.'
+    )
+    parser_gen.add_argument(
+        "--phred_score_factor",
+        default=1,
+        type=float,
+        help='Error model. If not specified, using kernel density estimation \
+        (default: %(default)s). Can be kde, basic or perfect'
     )
     parser_gen.add_argument(
         '--gc_bias',
