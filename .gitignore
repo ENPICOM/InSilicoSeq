@@ -40,3 +40,9 @@ venv_iss/
 
 # editor configs
 .vscode/
+
+# test
+stuff/
+venv
+.envrc
+*eggs/
