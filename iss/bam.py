@@ -25,10 +25,12 @@ def read_bam(bam_file, n_reads=1000000):
     """
 
     try:
+        logger.info('Reading bam file: %s' % bam_file)
         lines = pysam.idxstats(bam_file).splitlines()
         total_records = sum([int(l.split("\t")[2])
                             for l in lines if not l.startswith("#")])
         # total_records = sum(1 for _ in bam.fetch() if not _.is_unmapped)
+        logger.debug(f"{total_records} reads available for sampling")
         random_fraction = n_reads / total_records
         bam = pysam.AlignmentFile(bam_file, 'rb')  # reopen the file
 
@@ -37,7 +39,7 @@ def read_bam(bam_file, n_reads=1000000):
         LOGGER.error('Failed to read bam file: %s' % e)
         sys.exit(1)
     else:
-        LOGGER.info('Reading bam file: %s' % bam_file)
+        LOGGER.info('Iterating mapped reads:')
         c = 0
         with bam:
             for read in bam.fetch():
@@ -51,6 +53,7 @@ def read_bam(bam_file, n_reads=1000000):
                     yield read
                 elif c >= n_reads:
                     break
+            bam = pysam.AlignmentFile(bam_file, 'rb', threads=2)  # reopen the file
 
 
 def write_to_file(model, read_length, mean_f, mean_r, hist_f, hist_r,
@@ -104,7 +107,7 @@ def write_to_file(model, read_length, mean_f, mean_r, hist_f, hist_r,
         sys.exit(1)
 
 
-def to_model(bam_path, output):
+def to_model(bam_path, output, min_read_length, n_bins, sample_size):
     """from a bam file, write all variables needed for modelling reads in
     a .npz model file
 
@@ -115,6 +118,8 @@ def to_model(bam_path, output):
         bam_path (string): path to a bam file
         output (string): prefix of the output file
     """
+    min_bin_size = 5
+
     insert_size_dist = []
     qualities_forward = []
     qualities_reverse = []
@@ -124,7 +129,9 @@ def to_model(bam_path, output):
     indel_matrix_r = np.zeros([301, 9])
 
     # read the bam file and extract info needed for modelling
-    for read in read_bam(bam_path):
+    for read in read_bam(bam_path, sample_size):
+        if len(read.seq) < min_read_length:
+            continue
         # get insert size distribution
         if read.is_proper_pair:
             template_length = abs(read.template_length)
@@ -134,7 +141,6 @@ def to_model(bam_path, output):
         # get qualities
         if read.is_read1:
             # get mean quality too
-            quality_means = []
             read_quality = read.query_qualities
             mean_quality = np.mean(read_quality)
             if read.is_reverse:
@@ -146,7 +152,6 @@ def to_model(bam_path, output):
             # qualities_forward.append(read.query_qualities)
         elif read.is_read2:
             # get mean quality too
-            quality_means = []
             read_quality = read.query_qualities
             mean_quality = np.mean(read_quality)
             if read.is_reverse:
@@ -177,20 +182,27 @@ def to_model(bam_path, output):
                 elif read.is_read2:
                     indel_matrix_r[pos, indel] += 1
 
+    LOGGER.debug(f"forwared qs: {len(qualities_forward)}, reverse qs: {len(qualities_reverse)}")
+    LOGGER.debug(f"insert sizes: {len(insert_size_dist)}, {min(insert_size_dist)} - {max(insert_size_dist)}")
     LOGGER.info('Calculating insert size distribution')
-    # insert_size = int(np.mean(insert_size_dist))
+
     hist_insert_size = modeller.insert_size(insert_size_dist)
 
     LOGGER.info('Calculating mean and base quality distribution')
-    quality_bins_f = modeller.divide_qualities_into_bins(qualities_forward)
-    quality_bins_r = modeller.divide_qualities_into_bins(qualities_reverse)
+    # Divides qualities into bins, bins can be empty
+    quality_bins_f = modeller.divide_qualities_into_bins(qualities_forward, n_bins)
+    quality_bins_f = [bin if len(bin) > min_bin_size else [] for bin in quality_bins_f]
+    quality_bins_r = modeller.divide_qualities_into_bins(qualities_reverse, n_bins)
+    quality_bins_r = [bin if len(bin) > min_bin_size else [] for bin in quality_bins_r]
+    LOGGER.debug(f"Forward bin sizes {[len(v) for v in quality_bins_f]}")
+    LOGGER.debug(f"Reverse bin sizes {[len(v) for v in quality_bins_r]}")
 
     # getting distribution of mean sequence quality
     mean_f = [len(quality_bin) for quality_bin in quality_bins_f]
     mean_r = [len(quality_bin) for quality_bin in quality_bins_r]
 
-    hists_f = modeller.quality_bins_to_histogram(quality_bins_f)
-    hists_r = modeller.quality_bins_to_histogram(quality_bins_r)
+    hists_f = modeller.quality_bins_to_histogram(quality_bins_f, min_bin_size)
+    hists_r = modeller.quality_bins_to_histogram(quality_bins_r, min_bin_size)
 
     # modern illumina instruments return reads of the same length
     # in case our bam file contains aligned reads of different length,
@@ -198,6 +210,9 @@ def to_model(bam_path, output):
     length_forward = min((len(x) for x in hists_f if len(x) > 1))
     length_reverse = min((len(x) for x in hists_r if len(x) > 1))
     read_length = min(length_forward, length_reverse)
+
+    hists_f = [hist if len(hist) != 0 else read_length*[41*[0]] for hist in hists_f]
+    hists_r = [hist if len(hist) != 0 else read_length*[41*[0]] for hist in hists_r]
 
     # now we can resize the substitution and indel matrices before
     # doing operations on them

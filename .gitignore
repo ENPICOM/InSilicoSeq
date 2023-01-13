@@ -13,6 +13,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.eggs/
 
 # Unit test / coverage reports
 .cache
@@ -45,4 +46,3 @@ venv_iss/
 stuff/
 venv
 .envrc
-*eggs/
