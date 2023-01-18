@@ -25,12 +25,12 @@ def read_bam(bam_file, n_reads=1000000):
     """
 
     try:
-        logger.info('Reading bam file: %s' % bam_file)
+        LOGGER.info('Reading bam file: %s' % bam_file)
         lines = pysam.idxstats(bam_file).splitlines()
         total_records = sum([int(l.split("\t")[2])
                             for l in lines if not l.startswith("#")])
         # total_records = sum(1 for _ in bam.fetch() if not _.is_unmapped)
-        logger.debug(f"{total_records} reads available for sampling")
+        LOGGER.debug(f"{total_records} reads available for sampling")
         random_fraction = n_reads / total_records
         bam = pysam.AlignmentFile(bam_file, 'rb')  # reopen the file
 
@@ -39,7 +39,7 @@ def read_bam(bam_file, n_reads=1000000):
         LOGGER.error('Failed to read bam file: %s' % e)
         sys.exit(1)
     else:
-        LOGGER.info('Iterating mapped reads:')
+        LOGGER.info('Iterating mapped reads')
         c = 0
         with bam:
             for read in bam.fetch():
