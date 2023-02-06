@@ -46,3 +46,4 @@ venv_iss/
 stuff/
 venv
 .envrc
+debug/
