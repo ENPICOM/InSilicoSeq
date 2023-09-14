@@ -229,7 +229,7 @@ class ReadGenerator:
                                         k, v in coverage_dic.items()
                                         if k not in self.draft}
                 draft_dic = abundance.expand_draft_abundance(
-                    abundance_dic_short,  #! TODO This variable will always be unbound?
+                    coverage_dic,
                     self.draft,
                     mode="coverage")
                 abundance_dic = {**complete_genomes_dic,

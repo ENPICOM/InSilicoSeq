@@ -9,7 +9,10 @@ import sys
 import random
 import logging
 from typing import List, Tuple
+import _pickle
 import numpy as np
+
+from Bio.Seq import Seq, MutableSeq
 
 
 class ErrorModel(object):
@@ -52,7 +55,7 @@ class ErrorModel(object):
         try:
             error_profile = np.load(npz_path, allow_pickle=True)
             assert error_profile['model'] == model
-        except (OSError, IOError) as e:
+        except (OSError, IOError, EOFError, _pickle.UnpicklingError) as e:
             self.logger.error('Failed to read ErrorModel file: %s' % e)
             sys.exit(1)
         except AssertionError as e:
@@ -106,7 +109,7 @@ class ErrorModel(object):
         else:
             raise RuntimeError("Unsupported read orientation: %s" % orientation)
 
-        mutable_seq = record.seq.tomutable()
+        mutable_seq = MutableSeq(record.seq)
         quality_list = record.letter_annotations["phred_quality"]
         position = 0
         for nucl, qual in zip(mutable_seq, quality_list):
@@ -128,8 +131,7 @@ class ErrorModel(object):
                             })
                 mutable_seq[position] = mutated_nuc
             position += 1
-        record.seq = mutable_seq.toseq()
-
+        record.seq = Seq(mutable_seq)
         return record
 
     def adjust_seq_length(self, mut_seq, orientation, full_sequence, bounds) -> str:
@@ -153,11 +155,11 @@ class ErrorModel(object):
         """
         read_start, read_end = bounds
         if len(mut_seq) == self.read_length:
-            return mut_seq.toseq()
+            return Seq(mut_seq)
         elif len(mut_seq) > self.read_length:
             while len(mut_seq) > self.read_length:
                 mut_seq.pop()
-            return mut_seq.toseq()
+            return Seq(mut_seq)
         else:  # len smaller
             to_add = self.read_length - len(mut_seq)
             if orientation == 'forward':
@@ -175,7 +177,7 @@ class ErrorModel(object):
                         nucl_to_add = util.rev_comp(
                             full_sequence[read_start-1 - i])
                     mut_seq.append(nucl_to_add)
-            return mut_seq.toseq()
+            return Seq(mut_seq)
 
     def introduce_indels(self, record, orientation, full_seq, bounds) -> SeqRecord:
         """Introduce insertions or deletions in a sequence
@@ -206,7 +208,7 @@ class ErrorModel(object):
         else:
             raise RuntimeError("Unsupported read orientation: %s" % orientation)
 
-        mutable_seq = record.seq.tomutable()
+        mutable_seq = MutableSeq(record.seq)
         position = 0
         for nucl in range(self.read_length - 1):
             try:
