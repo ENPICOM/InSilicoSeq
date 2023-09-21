@@ -33,6 +33,7 @@ def test_parsing():
         'genome_T': 0.2
     }
 
+
 def test_parsing_readcounts():
     readcount_dic = abundance.parse_readcount_file('data/readcounts.txt')
     assert readcount_dic == {
@@ -42,7 +43,6 @@ def test_parsing_readcounts():
         'amplicon_GC': 4,
         'amplicon_T': 2
     }
-
 
 
 def test_parsing_empty():
